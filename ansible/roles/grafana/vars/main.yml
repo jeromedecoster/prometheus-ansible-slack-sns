@@ -1,0 +1,29 @@
+---
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/tasks/api_keys.yml
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/defaults/main.yml
+grafana_security:
+  admin_user: "{{ lookup('ansible.builtin.env', 'GRAFANA_ADMIN_USER') }}"
+  admin_password: "{{ lookup('ansible.builtin.env', 'GRAFANA_ADMIN_PASSWORD') }}"
+
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/tasks/datasources.yml
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/defaults/main.yml
+grafana_datasources:
+- name: prometheus
+  type: prometheus
+  access: proxy
+  url: 'http://127.0.0.1:9090'
+  basicAuth: false
+
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/tasks/dashboards.yml
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/defaults/main.yml
+# https://grafana.com/grafana/dashboards/1860
+# https://grafana.com/grafana/dashboards/11074
+grafana_dashboards:
+  # Node Exporter Full
+  - dashboard_id: 1860
+    revision_id: 30
+    datasource: "{{ grafana_datasources.0.name }}"
+  # Node Exporter for Prometheus Dashboard
+  - dashboard_id: 11074
+    revision_id: 9
+    datasource: "{{ grafana_datasources.0.name }}"

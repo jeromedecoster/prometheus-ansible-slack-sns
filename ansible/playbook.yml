@@ -1,0 +1,14 @@
+- name: install node_exporter
+  hosts: all
+  become: true
+  roles:
+    - node-exporter
+
+- name: install prometheus + grafana
+  hosts: monitoring
+  become: true
+  roles:
+    - prometheus
+    - alertmanager
+    - grafana
+

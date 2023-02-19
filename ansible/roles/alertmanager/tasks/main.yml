@@ -1,0 +1,178 @@
+---
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/ping_module.html#parameters
+# - name: ping
+#   ansible.builtin.ping:
+
+# - name: debug
+#   debug: 
+#     msg: "aws_access_key_id={{ lookup('ansible.builtin.env', 'AWS_ACCESS_KEY_ID') }} aws_secret_access_key={{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') }}"
+#     # msg: "role_path={{ role_path }} playbook_dir={{ playbook_dir }} role_name={{ role_name }} ansible_host={{ ansible_host }} ansible_host={{ lookup('ansible.builtin.env', 'HOME') }} "
+#   run_once: true
+
+# - meta: end_play
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html#parameters
+# https://github.com/cloudalchemy/ansible-alertmanager
+- name: install locally cloudalchemy/ansible-alertmanager role
+  ansible.builtin.shell: ansible-galaxy install git+https://github.com/cloudalchemy/ansible-alertmanager.git
+  become: false
+  run_once: true
+  changed_when: false
+  delegate_to: localhost
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/uri_module.html#parameters
+# https://github.com/prometheus/alertmanager/releases
+- name: get alertmanager releases JSON
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/prometheus/alertmanager/releases
+  register: releases
+  run_once: true
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/set_fact_module.html#parameters
+# https://api.github.com/repos/prometheus/alertmanager/releases
+# JMESPath Query Tester : https://mixedanalytics.com/tools/jmespath-expression-tester/
+- name: check if runner loclahost exists
+  ansible.builtin.set_fact:
+    alertmanager_latest_version: "{{ releases.json | json_query(jmesquery) | regex_replace('^v', '') }}"
+  vars:
+    jmesquery: "[?prerelease == `false`] | [0].tag_name"
+  run_once: true
+
+# - meta: end_play
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/set_fact_module.html#parameters
+# https://docs.ansible.com/ansible/latest/reference_appendices/special_variables.html#magic-variables
+# magic variable `role_name` : the name of the role currently being executed.
+- name: Setting host facts using complex arguments
+  ansible.builtin.set_fact:
+    current_role_path: "{{ role_path }}"
+    link: "http://www.google.fr?search={% raw %}{{ .Receiver }}{% endraw %}"
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_role_module.html#parameters
+# https://github.com/cloudalchemy/ansible-alertmanager
+# https://github.com/cloudalchemy/ansible-alertmanager/blob/master/defaults/main.yml
+# default var user + group : alertmanager
+# /etc/alertmanager/alertmanager.yml
+- ansible.builtin.include_role:
+    name: ansible-alertmanager
+  vars: 
+    alertmanager_version: "{{ alertmanager_latest_version }}"
+    # https://github.com/cloudalchemy/ansible-alertmanager/blob/master/defaults/main.yml
+    # List of folders where ansible will look for template files which will be 
+    # copied to {{ alertmanager_config_dir }}/templates/. Files must have *.tmpl extension
+    # alertmanager_template_files default : `- alertmanager/templates/*.tmpl`
+    # ⚠ important : by using `include_role`, default path NOT work
+    # ⚠ important : using `{{ role_path }}`/templates/*.tmpl` NOT work too
+    # resolved by defining a fact `current_role_path` in previous task
+    alertmanager_template_files:
+      - "{{ current_role_path }}/templates/*.tmpl"
+    alertmanager_slack_api_url: "{{ alertmanager_slack_url }}" 
+    # https://prometheus.io/docs/alerting/latest/configuration/#configuration-file
+    # define `receivers:` in /etc/alertmanager/alertmanager.yml
+    # check config on server using : `amtool check-config /etc/alertmanager/alertmanager.yml`
+    alertmanager_receivers:
+      - name: default-dummy
+      - name: slack
+        # https://prometheus.io/docs/alerting/latest/configuration/#slack_config
+        slack_configs:
+          # Whether to notify about resolved alerts.
+          # [ send_resolved: <boolean> | default = false ]
+          - send_resolved: true
+            # The channel or user to send notifications to.
+            # channel: <tmpl_string>
+            channel:  "{{ alertmanager_slack_channel }}"
+            # [ title: <tmpl_string> | default = '{{ template "slack.default.title" . }}' ]
+            title: '{% raw %}{{ template "slack-message-title" . }}{% endraw %}'
+            # [ text: <tmpl_string> | default = '{{ template "slack.default.text" . }}' ]
+            text: '{% raw %}{{ template "slack-message-description" . }}{% endraw %}'
+            # ⚠ important : define template for alertmanager is difficult and boring
+            # it's simpler to keep the default value of `title_link`
+            # [ title_link: <tmpl_string> | default = '{{ template "slack.default.titlelink" . }}' ]
+            # title_link: '{% raw %}{{ template "slack-message-titlelink" . }}{% endraw %}'
+      - name: sns
+        # https://prometheus.io/docs/alerting/latest/configuration/#sns_config
+        sns_configs:
+        - # Whether to notify about resolved alerts.
+          # [ send_resolved: <boolean> | default = false ]
+          send_resolved: true
+          # SNS topic ARN, i.e. arn:aws:sns:us-east-2:698519295917:My-Topic
+          topic_arn: "{{ sns_topic_arn }}"
+          # Configures AWS's Signature Verification 4 signing process to sign requests.
+          # https://prometheus.io/docs/alerting/latest/configuration/#sigv4_config
+          sigv4:
+            # The AWS API keys. Both access_key and secret_key must be supplied or both must be blank.
+            # If blank the environment variables `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are used.
+            access_key: "{{ sns_access_key }}"
+            secret_key: "{{ sns_secret_key }}"
+            # The AWS region. If blank, the region from the default credentials chain is used.
+            region: "{{ sns_region }}"
+
+
+    # https://prometheus.io/docs/alerting/latest/configuration/#route
+    # define `route:` in /etc/alertmanager/alertmanager.yml
+    # check config : `amtool check-config /etc/alertmanager/alertmanager.yml`
+    alertmanager_route:
+      # default receiver (nothing behind, we'll use routes below)
+      receiver: default-dummy
+      # To aggregate by all possible labels use the special value '...' as the sole label name, for example:
+      # group_by: ['...']
+      # This effectively disables aggregation entirely, passing through all
+      # alerts as-is. This is unlikely to be what you want, unless you have
+      # a very low alert volume or your upstream notification system performs
+      # its own grouping.
+      # [ group_by: '[' <labelname>, ... ']' ]
+      group_by: [...] # ['alertname', 'cluster', 'service'] # [...]
+      # How long to wait before sending a notification about new alerts that
+      # are added to a group of alerts for which an initial notification has
+      # already been sent. (Usually ~5m or more.)
+      # [ group_interval: <duration> | default = 5m ]
+      group_interval: 6s # testing delay
+      # How long to initially wait to send a notification for a group
+      # of alerts. Allows to wait for an inhibiting alert to arrive or collect
+      # more initial alerts for the same group. (Usually ~0s to few minutes.)
+      # [ group_wait: <duration> | default = 30s ]
+      group_wait: 6s # testing delay
+      # How long to wait before sending a notification again if it has already
+      # been sent successfully for an alert. (Usually ~3h or more).
+      # [ repeat_interval: <duration> | default = 4h ]
+      repeat_interval: 3h
+      # Zero or more child routes.
+      routes:
+      - receiver: sns
+        continue: true
+      - receiver: slack
+        continue: true
+
+# https://prometheus.io/docs/alerting/latest/notifications/#data
+
+# template : slack-message.tmpl
+# {{ define "slack-message-description" }}
+#
+#  Receiver: {{ .Receiver }}
+#  Status: {{ .Status }}
+#  Alerts: {{ .Alerts }}
+#  GroupLabels: {{ .GroupLabels }}
+#  CommonLabels: {{ .CommonLabels }}
+#  CommonAnnotations: {{ .CommonAnnotations }}
+#  ExternalURL: {{ .ExternalURL }}
+#
+# {{ range .Alerts -}}
+#  Status: {{ .Status }}
+#  Labels: {{ .Labels }}
+#  Annotations: {{ .Annotations }}
+#  GeneratorURL: {{ .GeneratorURL }}
+#  Fingerprint: {{ .Fingerprint }}
+# {{ end }}
+
+# Receiver: slack
+# Status: firing
+# Alerts: [{firing map[alertname:memory-critical environment:debian-1 instance:172.17.0.3:9100 severity:critical] map[description:Memory critical 64.8842592592591 !] 2000-01-01 12:00:00.318 +0000 UTC 0001-01-01 00:00:00 +0000 UTC http://debian-1:9090/graph?g0.expr=node_cpu_seconds_total%3Aavg+%3E+60&g0.tab=1 5850ba409f05847f}]
+# GroupLabels: map[alertname:memory-critical environment:debian-1 instance:172.17.0.3:9100 severity:critical]
+# CommonLabels: map[alertname:memory-critical environment:debian-1 instance:172.17.0.3:9100 severity:critical]
+# CommonAnnotations: map[description:Memory critical 64.8842592592591 !]
+# ExternalURL: http://localhost:9093
+#
+# Status: firing
+# Labels: map[alertname:memory-warning environment:debian-1 instance:172.17.0.2:9100 severity:warning]
+# Annotations: map[description:CPU load is > 30% VALUE = 31.199074074073792 summary:Ca fail]
+# GeneratorURL: http://debian-1:9090/graph?g0.expr=node_cpu_seconds_total%3Aavg+%3E+30&g0.tab=1

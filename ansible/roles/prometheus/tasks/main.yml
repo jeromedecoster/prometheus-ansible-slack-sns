@@ -1,0 +1,81 @@
+---
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/ping_module.html#parameters
+# - name: ping
+#   ansible.builtin.ping:
+
+# - name: debug
+#   debug: 
+#     msg: "ansible_user= ansible_host={{ ansible_host }} "
+#   run_once: true
+
+# - meta: end_play
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html#parameters
+# https://github.com/cloudalchemy/ansible-prometheus
+- name: install locally cloudalchemy/ansible-prometheus role
+  ansible.builtin.shell: ansible-galaxy install git+https://github.com/cloudalchemy/ansible-prometheus.git
+  become: false
+  run_once: true
+  changed_when: false
+  delegate_to: localhost
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/uri_module.html#parameters
+# https://github.com/prometheus/prometheus/releases
+- name: get prometheus releases JSON
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/prometheus/prometheus/releases
+  register: releases
+  run_once: true
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/set_fact_module.html#parameters
+# https://api.github.com/repos/prometheus/prometheus/releases
+# JMESPath Query Tester : https://mixedanalytics.com/tools/jmespath-expression-tester/
+- name: check if runner loclahost exists
+  ansible.builtin.set_fact:
+    prometheus_latest_version: "{{ releases.json | json_query(jmesquery) | regex_replace('^v', '') }}"
+  vars:
+    jmesquery: "[?prerelease == `false`] | [0].tag_name"
+  run_once: true
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_role_module.html#parameters
+# https://github.com/cloudalchemy/ansible-prometheus
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/defaults/main.yml
+# default var user + group :
+#   _node_exporter_system_group : node-exp
+- ansible.builtin.include_role:
+    name: ansible-prometheus
+  vars: 
+    prometheus_version: "{{ prometheus_latest_version }}"
+
+# https://prometheus.io/docs/guides/file-sd/
+# file-based service directory : targets defined within files in file_sd/*
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/tasks/install.yml
+- name: create or overwrite /etc/prometheus/file_sd/node.yml
+  template:
+    src: "node.yml.j2"
+    dest: "/etc/prometheus/file_sd/node.yml"
+    force: true
+    owner: root
+    group: prometheus
+    mode: 0640
+  notify:
+    - reload prometheus
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html#parameters
+# https://askubuntu.com/a/616677
+- name: get list of human users
+  ansible.builtin.shell: "getent passwd $(basename -a /home/*) | grep -o '^[^:]*'"
+  register: human_users
+  changed_when: false
+
+# - debug: msg="{{ item }}"
+#   loop: "{{ human_users.stdout.splitlines() }}"
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/user_module.html#parameters
+# user + group are hard coded : https://github.com/cloudalchemy/ansible-prometheus/blob/master/tasks/install.yml
+- name: add human users to the prometheus group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "prometheus"
+    append: true
+  loop: "{{ human_users.stdout.splitlines() }}"

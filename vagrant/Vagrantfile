@@ -1,0 +1,72 @@
+MONITORING_IP = ENV["MONITORING_IP"]
+SSH_PUBLIC_KEY = ENV["SSH_PUBLIC_KEY"]
+NODE1_IP = ENV["NODE1_IP"]
+NODE2_IP = ENV["NODE2_IP"]
+
+def log(name, value) STDERR.puts "\e[30;47m #{name} \e[0m #{value}" end
+def error(name, value) STDERR.puts "\e[48;5;196m #{name} \e[0m #{value}" end
+
+log "MONITORING_IP", MONITORING_IP
+log "SSH_PUBLIC_KEY", SSH_PUBLIC_KEY
+log "NODE1_IP", NODE1_IP
+log "NODE2_IP", NODE2_IP
+
+Vagrant.configure(2) do |config|
+
+    config.vm.define "monitoring" do |monitoring|
+        monitoring.vm.hostname = "monitoring"
+        monitoring.vm.box = "ubuntu/bionic64" # Bionic 18.04 - 354M
+        # monitoring.vm.box = "ubuntu/jammy64" # Jammy 22.04 - 603M
+        monitoring.vm.box_check_update = false
+        monitoring.vm.network "private_network", ip: MONITORING_IP
+        monitoring.vm.provider "virtualbox" do |vb|
+            # disable the log file output
+            # https://superuser.com/a/1395394
+            vb.customize [ "modifyvm", :id, "--uartmode1", "disconnected" ]
+            # https://developer.hashicorp.com/vagrant/docs/providers/virtualbox/configuration#vboxmanage-customizations
+            vb.cpus = 2 # default 2
+            vb.memory = 1024 # default 1024
+        end
+        # run: https://developer.hashicorp.com/vagrant/docs/provisioning/basic_usage#run-once-always-or-never
+        # env: https://developer.hashicorp.com/vagrant/docs/provisioning/shell#env
+        #      https://stackoverflow.com/a/37563822/1503073
+        monitoring.vm.provision "shell", path: "ssh.sh", 
+            env: {
+                "SSH_PUBLIC_KEY" => SSH_PUBLIC_KEY
+            }, 
+            run: "once" # once | always | never
+    end
+
+    nodes = [
+        { :hostname => "node1", :ip => NODE1_IP, :cpus => 2, :memory => 512 },
+        { :hostname => "node2", :ip => NODE2_IP, :cpus => 2, :memory => 512 }
+	]
+
+    nodes.each do |node|
+        config.vm.define node[:hostname] do |config|
+            config.vm.hostname = node[:hostname]
+            config.vm.box = "ubuntu/bionic64" # Bionic 18.04 - 354M
+            # config.vm.box = "ubuntu/jammy64" # Jammy 22.04 - 603M
+            config.vm.box_check_update = false
+            config.vm.network "private_network", ip: node[:ip]
+            config.vm.provider "virtualbox" do |vb|
+                # disable the log file output
+                # https://superuser.com/a/1395394
+                vb.customize [ "modifyvm", :id, "--uartmode1", "disconnected" ]
+                # https://developer.hashicorp.com/vagrant/docs/providers/virtualbox/configuration#vboxmanage-customizations
+                vb.cpus = node[:cpus] # default 2
+                vb.memory = node[:memory] # default 1024
+            end
+            # run: https://developer.hashicorp.com/vagrant/docs/provisioning/basic_usage#run-once-always-or-never
+            # env: https://developer.hashicorp.com/vagrant/docs/provisioning/shell#env
+            #      https://stackoverflow.com/a/37563822/1503073
+            config.vm.provision "shell", path: "ssh.sh", 
+                env: {
+                    "SSH_PUBLIC_KEY" => SSH_PUBLIC_KEY
+                }, 
+                run: "once" # once | always | never
+
+            config.vm.provision "shell", path: "install.sh", run: "once"
+        end
+    end
+end

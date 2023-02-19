@@ -1,0 +1,4 @@
+---
+# https://github.com/cloudalchemy/ansible-node-exporter/blob/master/defaults/main.yml
+# default : node-exp (internal variable `_node_exporter_system_group`)
+node_exporter_group: "node-exporter"

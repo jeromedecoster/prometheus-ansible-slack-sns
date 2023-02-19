@@ -1,0 +1,31 @@
+---
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/ping_module.html#parameters
+# - name: ping
+#   ansible.builtin.ping:
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html#parameters
+# https://github.com/cloudalchemy/ansible-grafana
+- name: install locally cloudalchemy/ansible-grafana role
+  ansible.builtin.shell: ansible-galaxy install git+https://github.com/cloudalchemy/ansible-grafana.git
+  become: false
+  run_once: true
+  changed_when: false
+  delegate_to: localhost
+
+# - name: debug
+#   debug: 
+#     msg: "admin_user={{ grafana_security.admin_user }} admin_password={{ grafana_security.admin_password }}"
+#   run_once: true
+
+# - meta: end_play
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_role_module.html#parameters
+# https://github.com/cloudalchemy/ansible-grafana
+# https://github.com/cloudalchemy/ansible-grafana/blob/master/defaults/main.yml
+# default var grafana_security.admin_user = admin
+# default var grafana_security.admin_password = 
+# overwitten in <grafana-role>/vars/main.yaml
+- ansible.builtin.include_role:
+    name: ansible-grafana
+    
+  

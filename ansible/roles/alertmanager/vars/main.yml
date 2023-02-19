@@ -1,0 +1,10 @@
+---
+# https://github.com/cloudalchemy/ansible-alertmanager/blob/master/defaults/main.yml
+# /!\ `alertmanager_slack_api_url` is already used by ansible-alertmanager role
+# this throw an error. With `alertmanager_slack_url` it works
+alertmanager_slack_url: "{{ lookup('ansible.builtin.env', 'SLACK_API_URL') }}"
+alertmanager_slack_channel: "{{ lookup('ansible.builtin.env', 'SLACK_CHANNEL') }}"
+sns_topic_arn: "{{ lookup('ansible.builtin.env', 'SNS_TOPIC_ARN') }}"
+sns_access_key: "{{ lookup('ansible.builtin.env', 'AWS_ACCESS_KEY_ID') }}"
+sns_secret_key: "{{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') }}"
+sns_region: "{{ lookup('ansible.builtin.env', 'AWS_REGION') }}"

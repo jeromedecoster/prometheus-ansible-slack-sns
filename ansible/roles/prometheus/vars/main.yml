@@ -1,0 +1,84 @@
+---
+# generate the file /etc/prometheus/file_sd/node.yml -> {{filename}}.yml with content `- targets: ...`
+# prometheus_targets:
+#   node:
+#   - targets: 
+#     - localhost:9100
+#     # - 172.17.0.3:9100
+#     # - 172.17.0.4:9100
+
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/defaults/main.yml
+# default values in `ansible-prometheus` role
+#   - scrape_interval: 15s
+#   - scrape_timeout: 10s
+#   - evaluation_interval: 15s
+# https://prometheus.io/docs/prometheus/latest/configuration/configuration/#configuration-file
+# default values in promotheus
+#   - scrape_interval: 1m
+#   - scrape_timeout: 10s
+#   - evaluation_interval: 1m
+prometheus_global:
+  # demo interval : 6s = collect 10 results by 1m 
+  # How frequently to scrape targets by default.
+  # [ scrape_interval: <duration> | default = 1m ]
+  scrape_interval: 6s
+  # How long until a scrape request times out.
+  # [ scrape_timeout: <duration> | default = 10s ]
+  scrape_timeout: 3s
+  # How frequently to evaluate rules.
+  # [ evaluation_interval: <duration> | default = 1m ]
+  evaluation_interval: 6s
+
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/templates/prometheus.yml.j2
+# define the part `alerting: \n alertmanagers:` in /etc/prometheus/prometheus.yml
+prometheus_alertmanager_config:
+  # https://prometheus.io/docs/prometheus/latest/configuration/configuration/#alertmanager_config
+  # # Configures the protocol scheme used for requests.
+  # [ scheme: <scheme> | default = http ]
+  - scheme: http
+    # List of labeled statically configured Alertmanagers.
+    # static_configs: [ - <static_config> ... ]
+    # https://prometheus.io/docs/prometheus/latest/configuration/configuration/#static_config
+    static_configs:
+      # The targets specified by the static config.
+      # targets:
+      #  [ - '<host>' ]
+      - targets:
+        # port 9093 is 9093
+        - "{{ ansible_host }}:9093"
+
+# https://prometheus.io/docs/guides/file-sd/
+# file-based service directory : targets defined within files in file_sd/*
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/tasks/install.yml
+# directory file_sd is created by ansible
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/templates/prometheus.yml.j2
+# define the part `scrape_configs:` in /etc/prometheus/prometheus.yml
+prometheus_scrape_configs:
+  - job_name: 'prometheus'
+    file_sd_configs:
+      - files:
+        - /etc/prometheus/file_sd/node.yml
+
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/tasks/configure.yml
+# create the file /etc/prometheus/rules/ansible_managed.rules using template
+# https://github.com/cloudalchemy/ansible-prometheus/blob/master/templates/alert.rules.j2
+# define the part `groups: \n rules:` in /etc/prometheus/rules/ansible_managed.rules
+prometheus_alert_rules:
+  - record: 'node_cpu_percentage'
+    expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)
+
+  - alert: memory-warning
+    expr: node_cpu_percentage > 50
+    labels:
+      severity: warning
+    annotations:
+      description: "{% raw %}CPU load is > 50%\n  VALUE = {{ $value }}{% endraw %}"
+      url: "http://{{ ansible_host }}:9090/alerts?search=memory-warning"
+
+  - alert: memory-critical
+    expr: node_cpu_percentage > 75
+    labels:
+      severity: critical
+    annotations:
+      description: "{% raw %}Memory critical {{ $value }} !{% endraw %}"
+      url: "http://{{ ansible_host }}:9090/alerts?search=memory-critical"

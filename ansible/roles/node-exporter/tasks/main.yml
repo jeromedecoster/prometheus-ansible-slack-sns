@@ -1,0 +1,67 @@
+---
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/ping_module.html#parameters
+# - name: ping
+#   ansible.builtin.ping:
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html#parameters
+# https://github.com/cloudalchemy/ansible-node-exporter
+- name: install locally cloudalchemy/ansible-node-exporter role
+  ansible.builtin.shell: ansible-galaxy install git+https://github.com/cloudalchemy/ansible-node-exporter.git
+  become: false
+  run_once: true
+  changed_when: false
+  delegate_to: localhost
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/uri_module.html#parameters
+# https://github.com/prometheus/node_exporter/releases
+- name: get node_exporter releases JSON
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/prometheus/node_exporter/releases
+  register: releases
+  run_once: true
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/set_fact_module.html#parameters
+# https://api.github.com/repos/prometheus/node_exporter/releases
+# JMESPath Query Tester : https://mixedanalytics.com/tools/jmespath-expression-tester/
+- name: check if runner loclahost exists
+  ansible.builtin.set_fact:
+    node_exporter_latest_version: "{{ releases.json | json_query(jmesquery) | regex_replace('^v', '') }}"
+  vars:
+    jmesquery: "[?prerelease == `false`] | [0].tag_name"
+  run_once: true
+
+# - name: debug
+#   debug: 
+#     msg: "latest_version={{ node_exporter_latest_version }} "
+#   run_once: true
+
+# - meta: end_play
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/include_role_module.html#parameters
+# https://github.com/cloudalchemy/ansible-node-exporter
+# https://github.com/cloudalchemy/ansible-node-exporter/blob/master/defaults/main.yml
+- ansible.builtin.include_role:
+    name: ansible-node-exporter
+  vars: 
+    # default : 1.1.2
+    node_exporter_version: "{{ node_exporter_latest_version }}"
+    # default : node-exp
+    _node_exporter_system_group: "{{ node_exporter_group }}"
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/shell_module.html#parameters
+# https://askubuntu.com/a/616677
+- name: get list of human users
+  ansible.builtin.shell: "getent passwd $(basename -a /home/*) | grep -o '^[^:]*'"
+  register: human_users
+  changed_when: false
+
+# - debug: msg="{{ item }}"
+#   loop: "{{ human_users.stdout.splitlines() }}"
+
+# https://docs.ansible.com/ansible/latest/collections/ansible/builtin/user_module.html#parameters
+- name: add human users to the node_exporter group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: "{{ node_exporter_group }}"
+    append: true
+  loop: "{{ human_users.stdout.splitlines() }}"
